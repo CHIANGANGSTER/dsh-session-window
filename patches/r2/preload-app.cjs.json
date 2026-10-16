@@ -1,0 +1,10 @@
+{
+  "asar_path": "/lib/preload-app.cjs",
+  "edits": [
+    {
+      "id": "preload-insert-bridge",
+      "find": "electron.contextBridge.exposeInMainWorld(\"dshDesktop\", location.protocol === `dsh-app:` && location.hostname === \"app\" && process.isMainFrame ? createProductApi() : { protocolVersion: 1 });",
+      "insert_after": "electron.contextBridge.exposeInMainWorld(\"dshSessionWindow\", location.protocol === `dsh-app:` && location.hostname === \"app\" && process.isMainFrame ? {\n\tversion: 2,\n\topenSessionWindow: (sessionId, displayTitle) => electron.ipcRenderer.invoke(\"dsh-desktop:open-session-window\", sessionId, String(displayTitle ?? \"\")),\n\tgetPendingTarget: () => electron.ipcRenderer.invoke(\"dsh-desktop:get-pending-target\"),\n\tackPendingTarget: (requestId, result, code) => electron.ipcRenderer.invoke(\"dsh-desktop:ack-pending-target\", requestId, result, code)\n} : { version: 0 });\n"
+    }
+  ]
+}

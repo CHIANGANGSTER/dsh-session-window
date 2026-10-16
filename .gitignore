@@ -1,0 +1,18 @@
+# Local audit, build, install and rollback state
+work/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+*.orig
+*.asar
+*.asar.*
+node_modules/
+
+# Internal handoff and environment-specific notes
+HANDOFF-CODEX.md
+dsh-session-window-HANDOFF.md
+R2-RUNBOOK.md
+RESUME-HERE.txt
+

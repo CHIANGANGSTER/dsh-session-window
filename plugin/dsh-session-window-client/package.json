@@ -1,0 +1,43 @@
+{
+  "name": "dsh-session-window-client",
+  "version": "1.0.0",
+  "description": "Adds an Open in new window action to the DSH session context menu.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "external": [
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}
+

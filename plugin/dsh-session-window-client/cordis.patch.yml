@@ -1,0 +1,10 @@
+# dsh-session-window-client bundle patch
+#
+# Add the plugin row to a profile. Applied through the Desktop plugin manager
+# (or `dsh plugin --profile <name> add dsh-session-window-client`) - see
+# R2-RUNBOOK.md C-05 for which profile to use.
+- insert:
+    - id: dsh-session-window-client
+      name: 'dsh-session-window-client'
+      config: {}
+

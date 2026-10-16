@@ -1,0 +1,25 @@
+{
+  "asar_path": "/lib/main.js",
+  "edits": [
+    {
+      "id": "import-webcontents",
+      "find": "import { BrowserWindow, Menu, Notification, Tray, WebContentsView, app, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, session, shell, systemPreferences } from \"electron\";",
+      "replace": "import { BrowserWindow, Menu, Notification, Tray, WebContents, WebContentsView, app, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, powerMonitor, protocol, session, shell, systemPreferences } from \"electron\";"
+    },
+    {
+      "id": "window-registry-and-factory",
+      "find": "const createMainWindow = () => {",
+      "replace": "const createMainWindow = () => {const __dshWindows = { windows: new Set(), spawned: 0, /** @returns the application window owning these contents, if it is one of ours. */ find: (contents) => contents === void 0 || contents === null || contents.isDestroyed() === true ? void 0 : [...__dshWindows.windows].find((w) => w.isDestroyed() === false && w.webContents === contents), /** * Open one more application window, focused on a Session when one is named. * Reuses an existing window past the cap so a runaway caller cannot spawn * unbounded windows. * @param input.sessionId - Session to reveal in the new window. * @param input.activate - focus the window once it has loaded. * @returns the window, or undefined when the shell cannot open one. */ open: async ({ sessionId, activate = true } = {}) => { if (quitting || mainWindow === void 0 || mainWindow.isDestroyed()) return void 0; if (__dshWindows.windows.size >= 8) { const reuse = [...__dshWindows.windows].find((w) => w.isDestroyed() === false); if (reuse === void 0) return void 0; if (typeof sessionId === \"string\" && sessionId.length > 0) reuse.webContents.send(\"dsh-desktop:open-session\", sessionId); reuse.show(); reuse.focus(); return reuse; } const step = __dshWindows.spawned++ % 6; const base = mainWindow.getBounds(); const window = createWindow(appPreload, false, true); window.setBounds({ x: base.x + 40 * step, y: base.y + 40 * step, width: base.width, height: base.height }); __dshWindows.windows.add(window); window.on(\"closed\", () => { __dshWindows.windows.delete(window); }); window.on(\"close\", (event) => { if (quitting || shellInstallerOwnsQuit || sessionEnding) return; if (window !== mainWindow) return; event.preventDefault(); if (updateDialog.isOpen) { updateDialog.focus(); return; } const hide = () => { if (!quitting && !shellInstallerOwnsQuit && !sessionEnding && !window.isDestroyed()) hideMainWindow(window); }; if (backgroundNotice === void 0) hide(); else backgroundNotice.close(hide); }); if (typeof sessionId === \"string\" && sessionId.length > 0) window.setTitle(sessionId); try { await window.loadURL(applicationUrl); } catch (error) { __dshWindows.windows.delete(window); if (window.isDestroyed() === false) window.destroy(); throw error; } if (window.isDestroyed()) return void 0; if (typeof sessionId === \"string\" && sessionId.length > 0) window.webContents.send(\"dsh-desktop:open-session\", sessionId); if (activate) { window.show(); window.focus(); } return window; } };"
+    },
+    {
+      "id": "session-window-ipc",
+      "find": "const enterWorkspace = async ({ activate = true } = {}) => {",
+      "replace": "const enterWorkspace = async ({ activate = true } = {}) => {ipcMain.handle(\"dsh-desktop:open-session-window\", async (event, sessionId, displayTitle) => { const owner = __dshWindows.find(event.sender); if (owner === void 0) throw new Error(\"dsh desktop: rejected window request from an unowned renderer\"); if (typeof sessionId !== \"string\" || sessionId.length === 0 || sessionId.length > 200) throw new Error(\"dsh desktop: invalid session id\"); const window = await __dshWindows.open({ sessionId }); if (window === void 0) throw new Error(\"dsh desktop: window limit reached\"); return { windowId: window.id }; }); ipcMain.handle(\"dsh-desktop:show-session-menu\", async (event, sessionId, displayTitle, x, y) => { const owner = __dshWindows.find(event.sender); if (owner === void 0) return null; if (typeof sessionId !== \"string\" || sessionId.length === 0 || sessionId.length > 200) return null; let label = \"Open in new window\"; try { label = currentDesktopLocale().messages.openInNewWindow ?? label; } catch {} const suffix = typeof displayTitle === \"string\" && displayTitle.trim().length > 0 ? \": \" + displayTitle.trim().slice(0, 60) : \"\"; return await new Promise((resolve) => { let chosen = null; Menu.buildFromTemplate([{ id: \"open-in-new-window\", label: label + suffix, click: () => { chosen = \"open-in-new-window\"; } }]).popup({ window: owner, x: Number.isFinite(x) ? Math.round(x) : void 0, y: Number.isFinite(y) ? Math.round(y) : void 0, callback: () => resolve(chosen) }); }); });"
+    },
+    {
+      "id": "ws-cookie-any-app-window",
+      "find": "if (hostUrl === void 0 || hostCookie === void 0 || details.webContentsId !== mainWindow?.webContents.id) {",
+      "replace": "if (hostUrl === void 0 || hostCookie === void 0 || __dshWindows.find(WebContents.fromId(details.webContentsId)) === void 0) {"
+    }
+  ]
+}

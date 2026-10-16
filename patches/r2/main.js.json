@@ -1,0 +1,115 @@
+{
+  "asar_path": "/lib/main.js",
+  "edits": [
+    {
+      "id": "main-insert-registry",
+      "find": "const assertProductSender = (event) => {",
+      "insert_before": "const appWindows = /* @__PURE__ */ new Set();\nconst pendingTargets = /* @__PURE__ */ new Map();\nconst PENDING_SOFT_MS = 6e4;\nconst PENDING_HARD_MS = 12e4;\nlet pendingSeq = 0;\nconst nextRequestId = () => `req_${Date.now().toString(36)}_${(pendingSeq++).toString(36)}`;\nconst logWindowEvent = (event, fields) => {\n\ttry {\n\t\tappendFileSync(join(app.getPath(\"logs\"), \"dsh-session-window.log\"), `${new Date().toISOString()} ${event} ${JSON.stringify(fields ?? {})}\\n`);\n\t} catch {}\n};\nconst registerAppWindow = (window) => {\n\tconst id = window.webContents.id;\n\tappWindows.add(id);\n\twindow.on(\"closed\", () => {\n\t\tappWindows.delete(id);\n\t\tpendingTargets.delete(id);\n\t\tlogWindowEvent(\"close\", { webContentsId: id });\n\t});\n\tlogWindowEvent(\"register\", { webContentsId: id });\n\treturn id;\n};\nconst isRegisteredContents = (contents) => contents !== void 0 && contents !== null && appWindows.has(contents.id);\nconst isAppSender = (event) => {\n\tconst frame = event.senderFrame;\n\tif (frame === null || frame === void 0) return false;\n\tif (frame !== event.sender.mainFrame) return false;\n\tif (!isRegisteredContents(event.sender)) return false;\n\ttry {\n\t\tconst url = new URL(frame.url);\n\t\treturn url.protocol === `${SCHEME}:` && url.hostname === \"app\";\n\t} catch {\n\t\treturn false;\n\t}\n};\nconst attachAppWindowDiagnostics = (window) => {\n\twindow.webContents.on(\"console-message\", (details) => {\n\t\tif (details.level !== \"error\") return;\n\t\tlogWindowEvent(\"renderer-error\", { webContentsId: window.webContents.id, message: String(details.message).slice(0, 400) });\n\t\trendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`);\n\t});\n\twindow.webContents.on(\"did-fail-load\", (_event, code, description, url, isMainFrame) => {\n\t\tif (isMainFrame && code !== -3 && !quitting && !window.isDestroyed()) reportFatal(/* @__PURE__ */ new Error(`Desktop page failed to load: ${url} (${String(code)}: ${description})`), \"renderer\");\n\t});\n\twindow.webContents.on(\"preload-error\", (_event, _path, error) => {\n\t\tif (!quitting && !window.isDestroyed()) reportFatal(error, \"renderer\");\n\t});\n\twindow.webContents.on(\"render-process-gone\", (_event, details) => {\n\t\tnavigation = void 0;\n\t\tif (!quitting && !window.isDestroyed() && details.reason !== \"clean-exit\") reportFatal(/* @__PURE__ */ new Error(`Desktop renderer exited: ${details.reason}`), \"renderer\");\n\t});\n};\nconst markPendingLoaded = (window) => {\n\twindow.webContents.on(\"did-finish-load\", () => {\n\t\tconst entry = pendingTargets.get(window.webContents.id);\n\t\tif (entry !== void 0) {\n\t\t\tentry.lastLoadAt = Date.now();\n\t\t\tlogWindowEvent(\"pending-load\", { webContentsId: window.webContents.id, requestId: entry.requestId });\n\t\t}\n\t});\n};\nconst readPendingTarget = (id) => {\n\tconst entry = pendingTargets.get(id);\n\tif (entry === void 0) return null;\n\tconst now = Date.now();\n\tif (!entry.expired) {\n\t\tconst soft = entry.lastLoadAt !== null && now - entry.lastLoadAt > PENDING_SOFT_MS;\n\t\tconst hard = now - entry.createdAt > PENDING_HARD_MS;\n\t\tif (soft || hard) {\n\t\t\tentry.expired = true;\n\t\t\tlogWindowEvent(\"pending-expired\", { webContentsId: id, requestId: entry.requestId, reason: hard ? \"hard\" : \"soft\" });\n\t\t}\n\t}\n\treturn {\n\t\trequestId: entry.requestId,\n\t\tsessionId: entry.sessionId,\n\t\t...entry.expired ? { expired: true } : {}\n\t};\n};\nconst createAppWindow = (sessionId) => {\n\tconst window = createWindow(appPreload, true, true);\n\tconst id = registerAppWindow(window);\n\tbrowserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name));\n\tshortcuts.attach(window);\n\tattachAppWindowDiagnostics(window);\n\tmarkPendingLoaded(window);\n\twindow.on(\"close\", (event) => {\n\t\tif (quitting || shellInstallerOwnsQuit || sessionEnding) return;\n\t\tevent.preventDefault();\n\t\tif (!window.isDestroyed()) window.destroy();\n\t});\n\tconst requestId = nextRequestId();\n\tpendingTargets.set(id, {\n\t\trequestId,\n\t\tsessionId,\n\t\tcreatedAt: Date.now(),\n\t\tlastLoadAt: null,\n\t\texpired: false\n\t});\n\tlogWindowEvent(\"open\", { webContentsId: id, requestId, sessionId });\n\twindow.loadURL(applicationUrl).catch((error) => {\n\t\tlogWindowEvent(\"open-failed\", { webContentsId: id, requestId, message: String(error) });\n\t\tif (!window.isDestroyed()) window.destroy();\n\t});\n\treturn { window, requestId };\n};\n"
+    },
+    {
+      "id": "main-insert-ipc",
+      "find": "const enterWorkspace = async ({ activate = true } = {}) => {",
+      "insert_before": "ipcMain.handle(\"dsh-desktop:open-session-window\", async (event, sessionId, displayTitle) => {\n\tif (!isAppSender(event)) {\n\t\tlogWindowEvent(\"reject\", { reason: \"not-app-sender\", channel: \"open-session-window\" });\n\t\treturn { ok: false, code: \"INVALID_SESSION\" };\n\t}\n\tif (typeof sessionId !== \"string\" || sessionId.length === 0 || sessionId.length > 128) {\n\t\tlogWindowEvent(\"reject\", { reason: \"bad-session-id\", channel: \"open-session-window\" });\n\t\treturn { ok: false, code: \"INVALID_SESSION\" };\n\t}\n\tif (quitting) return { ok: false, code: \"OPEN_FAILED\" };\n\tif (appWindows.size >= 8) {\n\t\tlogWindowEvent(\"reject\", { reason: \"window-limit\", channel: \"open-session-window\" });\n\t\treturn { ok: false, code: \"WINDOW_LIMIT\" };\n\t}\n\ttry {\n\t\tconst { requestId } = createAppWindow(sessionId);\n\t\treturn { ok: true, requestId };\n\t} catch (error) {\n\t\tlogWindowEvent(\"open-failed\", { message: String(error) });\n\t\treturn { ok: false, code: \"OPEN_FAILED\" };\n\t}\n});\nipcMain.handle(\"dsh-desktop:get-pending-target\", async (event) => {\n\tif (!isAppSender(event)) return null;\n\tconst target = readPendingTarget(event.sender.id);\n\tif (target === null) return null;\n\tlogWindowEvent(\"pending-read\", {\n\t\twebContentsId: event.sender.id,\n\t\trequestId: target.requestId,\n\t\texpired: target.expired === true\n\t});\n\treturn target;\n});\nipcMain.handle(\"dsh-desktop:ack-pending-target\", async (event, requestId, result, code) => {\n\tif (!isAppSender(event)) return { ok: false, code: \"INVALID_SESSION\" };\n\tconst id = event.sender.id;\n\tconst entry = pendingTargets.get(id);\n\tif (entry === void 0 || entry.requestId !== requestId) {\n\t\tlogWindowEvent(\"ack-mismatch\", { webContentsId: id, requestId: String(requestId) });\n\t\treturn { ok: false, code: \"OPEN_FAILED\" };\n\t}\n\tpendingTargets.delete(id);\n\tlogWindowEvent(\"ack\", {\n\t\twebContentsId: id,\n\t\trequestId,\n\t\tresult: result === \"opened\" ? \"opened\" : \"failed\",\n\t\tcode: typeof code === \"string\" ? code : void 0\n\t});\n\treturn { ok: true };\n});\n"
+    },
+    {
+      "id": "main-register-primary",
+      "find": "mainWindow = window;",
+      "replace": "mainWindow = window;\n\t\tregisterAppWindow(window);"
+    },
+    {
+      "id": "main-cookie-gate",
+      "find": "if (hostUrl === void 0 || hostCookie === void 0 || details.webContentsId !== mainWindow?.webContents.id) {",
+      "replace": "if (hostUrl === void 0 || hostCookie === void 0 || !appWindows.has(details.webContentsId)) {"
+    },
+    {
+      "id": "main-locale-bootstrap",
+      "find": "event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(event.senderFrame.url).origin !== new URL(applicationUrl).origin",
+      "replace": "!isAppSender(event)"
+    },
+    {
+      "id": "main-product-sender",
+      "find": "mainWindow === void 0 || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame === null || event.senderFrame !== mainWindow.webContents.mainFrame",
+      "replace": "!isAppSender(event)"
+    },
+    {
+      "id": "main-native-theme",
+      "find": "if (mainWindow === void 0 || event.sender !== mainWindow.webContents) return;",
+      "replace": "if (!isAppSender(event)) return;"
+    },
+    {
+      "id": "main-locale-change",
+      "find": "if (window === void 0 || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || typeof next !== \"string\") return;",
+      "replace": "if (!isAppSender(event) || typeof next !== \"string\") return;"
+    },
+    {
+      "id": "main-shortcuts-owners",
+      "find": "function installDesktopShortcuts(getWindow, userData, platform, updateMenu, overlayInput) {",
+      "replace": "function installDesktopShortcuts(getWindow, userData, platform, updateMenu, overlayInput, getWindows) {"
+    },
+    {
+      "id": "main-shortcuts-sender",
+      "find": "const assertSender = (event) => {\n\t\tconst window = getWindow();",
+      "replace": "const assertSender = (event) => {\n\t\tconst window = getWindows().find((owner) => owner.webContents === event.sender);"
+    },
+    {
+      "id": "main-shortcuts-broadcast",
+      "find": "const window = getWindow();\n\t\tif (window !== void 0 && !window.isDestroyed() && window.webContents.mainFrame.url.startsWith(\"dsh-app://app/\")) window.webContents.send(DESKTOP_IPC.shortcutsChanged, snapshot);",
+      "replace": "for (const window of getWindows()) {\n\t\t\tif (!window.isDestroyed() && window.webContents.mainFrame.url.startsWith(\"dsh-app://app/\")) window.webContents.send(DESKTOP_IPC.shortcutsChanged, snapshot);\n\t\t}"
+    },
+    {
+      "id": "main-shortcuts-focused",
+      "find": "installDesktopShortcuts(() => mainWindow,",
+      "replace": "installDesktopShortcuts(() => { const focused = BrowserWindow.getFocusedWindow(); return focused && appWindows.has(focused.webContents.id) ? focused : mainWindow; },"
+    },
+    {
+      "id": "main-shortcuts-registry",
+      "find": "}, (window) => updateOverlays.input(window));",
+      "replace": "}, (window) => updateOverlays.input(window), () => BrowserWindow.getAllWindows().filter((window) => appWindows.has(window.webContents.id)));"
+    },
+    {
+      "id": "main-directory-owner",
+      "find": "installDesktopDirectoryPicker(() => mainWindow);",
+      "replace": "installDesktopDirectoryPicker((contents) => isRegisteredContents(contents) ? BrowserWindow.fromWebContents(contents) : void 0);"
+    },
+    {
+      "id": "main-directory-sender",
+      "find": "ipcMain.handle(DESKTOP_IPC.directoryPick, async (event) => {\n\t\tconst window = getWindow();",
+      "replace": "ipcMain.handle(DESKTOP_IPC.directoryPick, async (event) => {\n\t\tconst window = getWindow(event.sender);"
+    },
+    {
+      "id": "main-menu-sender",
+      "find": "if (mainWindow === void 0 || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error(\"desktop menu: rejected sender\");",
+      "replace": "if (!isAppSender(event)) throw new Error(\"desktop menu: rejected sender\");"
+    },
+    {
+      "id": "main-menu-owner",
+      "find": "const window = mainWindow;\n\t\t\tconst editItem =",
+      "replace": "const window = BrowserWindow.fromWebContents(event.sender);\n\t\t\tconst editItem ="
+    },
+    {
+      "id": "main-menu-zoom",
+      "find": "const zoom = mainWindow.webContents.getZoomFactor();",
+      "replace": "const zoom = window.webContents.getZoomFactor();"
+    },
+    {
+      "id": "main-appearance-owner",
+      "find": "if (mainWindow === void 0 || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return;",
+      "replace": "if (!isAppSender(event)) return;\n\t\t\tconst window = BrowserWindow.fromWebContents(event.sender);"
+    },
+    {
+      "id": "main-appearance-target",
+      "find": "if (validColor(color) && validColor(symbolColor)) mainWindow.setTitleBarOverlay({",
+      "replace": "if (validColor(color) && validColor(symbolColor)) window.setTitleBarOverlay({"
+    },
+    {
+      "id": "main-boot-failure",
+      "find": "if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error(\"dsh desktop: rejected startup failure from a non-primary frame\");",
+      "replace": "if (!isAppSender(event)) throw new Error(\"dsh desktop: rejected startup failure from an unowned frame\");"
+    },
+    {
+      "id": "main-boot-failure-report",
+      "find": "reportFatal(new Error(message), \"web-boot\");",
+      "replace": "if (event.sender !== mainWindow?.webContents) {\n\t\t\tlogWindowEvent(\"boot-failed\", { webContentsId: event.sender.id, message: message.slice(0, 400) });\n\t\t\treturn;\n\t\t}\n\t\treportFatal(new Error(message), \"web-boot\");"
+    }
+  ]
+}
