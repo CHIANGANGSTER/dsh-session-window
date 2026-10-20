@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
 
     const zh = {
       'menu.openInNewWindow': '在新窗口中打开',
+      'menu.bridgeUnavailable': '新窗口功能需适配当前版本',
       'notice.openFailed': '无法在新窗口中打开该会话。',
       'notice.windowLimit': '窗口数量已达上限（8 个），请先关闭一些窗口。',
       'notice.timeout': '新窗口打开该会话超时，请重试。',
@@ -42,6 +43,7 @@ window.__ModuleLoader__.load({
 
     const en = {
       'menu.openInNewWindow': 'Open in new window',
+      'menu.bridgeUnavailable': 'New window support needs an update',
       'notice.openFailed': 'Could not open that Session in a new window.',
       'notice.windowLimit': 'The window limit (8) is reached. Close some windows first.',
       'notice.timeout': 'Timed out opening that Session in the new window. Try again.',
@@ -94,7 +96,7 @@ window.__ModuleLoader__.load({
 
     // shortcut: native SessionRow markup only; update this selector if the sidebar changes.
     function openNativeMenu(event, sessions) {
-      if (!hasBridge() || !(event.target instanceof Element)) return
+      if (!(event.target instanceof Element)) return
       const row = event.target.closest('[data-row-key]')
       const match = ROW_KEY.exec(row?.getAttribute('data-row-key') ?? '')
       if (!match || !SESSION_ID.test(match[1]) || !row.className.includes('_sessionRow')) return
@@ -120,11 +122,12 @@ window.__ModuleLoader__.load({
         void requestWindow(sessionId, displayTitle)
       }, [sessionId, displayTitle, setMenuOpen])
 
-      if (!hasBridge() || typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return null
+      if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return null
       return createElement(MenuItemButton, {
         icon: createElement(IconRightUpOutlineRegular),
+        disabled: !hasBridge(),
         onSelect,
-        children: props.t('menu.openInNewWindow')
+        children: props.t(hasBridge() ? 'menu.openInNewWindow' : 'menu.bridgeUnavailable')
       })
     }
 
@@ -353,4 +356,3 @@ window.__ModuleLoader__.load({
     return { inject, apply }
   }
 })
-

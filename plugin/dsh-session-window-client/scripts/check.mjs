@@ -109,7 +109,13 @@ check('5 menu id correct',
 check('5 order is 350', /order:\s*350/.test(srcClient))
 check('5 overlay notice slot declared', srcClient.includes("'shell.overlay'"))
 check('6 bridge version guard', /version\s*===\s*2/.test(srcClient))
-check('6 guard used before render', /if\s*\(!hasBridge\(\)/.test(srcClient))
+// Contract change: without the Desktop bridge the entry is now rendered
+// DISABLED with an explanatory label instead of being omitted. A silently
+// missing menu item left users unable to tell "not installed" from
+// "shell not patched"; a greyed-out row says which one it is.
+check('6 item disabled without a bridge', /disabled:\s*!hasBridge\(\)/.test(srcClient))
+check('6 fallback label present', srcClient.includes('menu.bridgeUnavailable'))
+check('6 no silent early guard in the click handler', !/if\s*\(!hasBridge\(\)\s*\|\|/.test(srcClient))
 check('7 no ipcRenderer', !srcClient.includes('ipcRenderer') && !libClient.includes('ipcRenderer'))
 check('7 client inject declares services', /const inject = \['slots'(, )?'locale'\]/.test(srcClient))
 
